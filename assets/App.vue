@@ -1,5 +1,5 @@
 <template>
-  <div class="main" @dragenter.prevent @dragover.prevent @drop.prevent="onDrop" @paste.prevent="onPaste">
+  <div class="main" @dragenter.prevent @dragover.prevent @drop.prevent="onDrop">
     <progress
       v-if="uploadProgress !== null"
       :value="uploadProgress"
@@ -11,14 +11,21 @@
       @createFolder="createFolder"
     ></UploadPopup>
     <button class="upload-button circle" @click="showUploadPopup = true">
-      <img
-        style="filter: invert(100%)"
-        src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/upload_file/materialicons/36dp/2x/baseline_upload_file_black_36dp.png"
-        alt="Upload"
+      <!-- 替换为内联SVG上传图标 -->
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
         width="36"
         height="36"
+        alt="Upload"
+        style="filter: invert(100%)"
         @contextmenu.prevent
-      />
+      >
+        <path
+          fill="#000000"
+          d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"
+        />
+      </svg>
     </button>
     <div class="app-bar">
       <input type="search" v-model="search" aria-label="Search" />
@@ -54,12 +61,19 @@
           @contextmenu.prevent
         >
           <div class="file-icon">
-            <img
-              src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/folder/materialicons/36dp/2x/baseline_folder_black_36dp.png"
+            <!-- 替换为内联SVG文件夹图标 -->
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
               width="36"
               height="36"
               alt="Folder"
-            />
+            >
+              <path
+                fill="#000000"
+                d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
+              />
+            </svg>
           </div>
           <span class="file-name">..</span>
         </div>
@@ -75,12 +89,19 @@
           "
         >
           <div class="file-icon">
-            <img
-              src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/folder/materialicons/36dp/2x/baseline_folder_black_36dp.png"
+            <!-- 替换为内联SVG文件夹图标 -->
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
               width="36"
               height="36"
               alt="Folder"
-            />
+            >
+              <path
+                fill="#000000"
+                d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
+              />
+            </svg>
           </div>
           <span
             class="file-name"
@@ -495,19 +516,16 @@ export default {
       // 如果是文件夹,需要移除_$folder$后缀
       const finalFileName = fileName.endsWith('_$folder$') ? fileName.slice(0, -9) : fileName;
       
+      // 修复：正确处理目标路径，避免双斜杠
+      const normalizedPath = targetPath === '' ? '' : (targetPath.endsWith('/') ? targetPath : targetPath + '/');
+      
       try {
         // 如果是目录（以_$folder$结尾），则需要移动整个目录内容
         if (key.endsWith('_$folder$')) {
           // 获取源目录的基础路径（移除_$folder$后缀）
           const sourceBasePath = key.slice(0, -9);
-          
-          // 构建目标路径（确保不会出现双斜杠）
-          const targetBasePath = targetPath 
-            ? (targetPath.endsWith('/') ? targetPath + finalFileName : targetPath + '/' + finalFileName)
-            : finalFileName;
-          
-          // 确保目标路径以/结尾，并移除多余的斜杠
-          const normalizedTargetPath = (targetBasePath + '/').replace(/\/{2,}/g, '/');
+          // 获取目标目录的基础路径，修复根目录的情况
+          const targetBasePath = normalizedPath + finalFileName + '/';
           
           // 递归获取所有子文件和子目录
           const allItems = await this.getAllItems(sourceBasePath);
@@ -516,24 +534,12 @@ export default {
           const totalItems = allItems.length;
           let processedItems = 0;
           
-          // 首先创建目标文件夹
-          try {
-            // 创建目标文件夹标记
-            const folderMarker = targetBasePath.replace(/\/{2,}/g, '/') + '_$folder$';
-            await axios.put(`/api/write/items/${folderMarker}`, '');
-          } catch (error) {
-            console.error('创建目标文件夹失败:', error);
-            throw error; // 如果创建文件夹失败，终止整个移动操作
-          }
-          
           // 移动所有项目
           for (const item of allItems) {
+            const relativePath = item.key.substring(sourceBasePath.length);
+            const newPath = targetBasePath + relativePath;
+            
             try {
-              const relativePath = item.key.substring(sourceBasePath.length);
-              // 确保新路径不会以/开头，并且移除所有连续的斜杠
-              const newPath = (normalizedTargetPath + (relativePath.startsWith('/') ? relativePath.slice(1) : relativePath))
-                .replace(/\/{2,}/g, '/');
-              
               // 复制到新位置
               await this.copyPaste(item.key, newPath);
               // 删除原位置
@@ -547,25 +553,17 @@ export default {
             }
           }
           
-          // 删除原始目录标记
-          try {
-            await axios.delete(`/api/write/items/${key}`);
-          } catch (error) {
-            console.error('删除原始目录标记失败:', error);
-          }
+          // 移动目录标记
+          const targetFolderPath = targetBasePath.slice(0, -1) + '_$folder$';
+          await this.copyPaste(key, targetFolderPath);
+          await axios.delete(`/api/write/items/${key}`);
           
           // 清除进度
           this.uploadProgress = null;
         } else {
-          // 单文件移动逻辑
-          const targetFilePath = targetPath 
-            ? (targetPath.endsWith('/') ? targetPath + finalFileName : targetPath + '/' + finalFileName)
-            : finalFileName;
-          
-          // 移除所有连续的斜杠
-          const normalizedPath = targetFilePath.replace(/\/{2,}/g, '/');
-          
-          await this.copyPaste(key, normalizedPath);
+          // 单文件移动逻辑，修复根目录的情况
+          const targetFilePath = normalizedPath + finalFileName;
+          await this.copyPaste(key, targetFilePath);
           await axios.delete(`/api/write/items/${key}`);
         }
         
@@ -574,7 +572,6 @@ export default {
       } catch (error) {
         console.error('移动失败:', error);
         alert('移动失败,请检查目标路径是否正确');
-        this.uploadProgress = null; // 确保在错误时清除进度条
       }
     },
 
@@ -624,23 +621,6 @@ export default {
       }));
       this.uploadQueue.push(...uploadTasks);
       setTimeout(() => this.processUploadQueue());
-    },
-
-    onPaste(event) {
-      const items = event.clipboardData?.items;
-      if (!items) return;
-      
-      const files = [];
-      for (const item of items) {
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) files.push(file);
-        }
-      }
-      
-      if (files.length > 0) {
-        this.uploadFiles(files);
-      }
     },
   },
 
